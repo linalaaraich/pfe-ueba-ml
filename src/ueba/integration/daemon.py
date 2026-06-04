@@ -92,20 +92,24 @@ class UEBAModels:
         return model
 
     def _load_autoencoder(self):
-        ae    = self._load("autoencoder.pkl")
+        # Le modèle Keras est rechargé au format natif .keras (jamais via pickle :
+        # joblib/pickle n'est pas fiable pour Keras 3). predict() ci-dessous attend
+        # un modèle Keras brut qui renvoie des reconstructions, pas un wrapper.
         thr   = 0.05
         tpath = self.dir / "ae_threshold.json"
         if tpath.exists():
             thr = json.loads(tpath.read_text()).get("threshold", thr)
-        if ae is None:
-            keras_path = self.dir / "autoencoder.keras"
-            if keras_path.exists():
-                try:
-                    from tensorflow import keras
-                    ae = keras.models.load_model(str(keras_path))
-                    self.log.info("Autoencoder chargé depuis autoencoder.keras")
-                except ImportError:
-                    self.log.warning("TensorFlow absent — autoencoder désactivé")
+        ae = None
+        keras_path = self.dir / "autoencoder.keras"
+        if keras_path.exists():
+            try:
+                from tensorflow import keras
+                ae = keras.models.load_model(str(keras_path))
+                self.log.info("Autoencoder chargé depuis autoencoder.keras")
+            except ImportError:
+                self.log.warning("TensorFlow absent — autoencoder désactivé")
+        else:
+            self.log.warning("Modèle introuvable : %s", keras_path)
         return ae, thr
 
     def is_ready(self) -> bool:
