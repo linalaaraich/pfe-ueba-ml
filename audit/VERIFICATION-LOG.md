@@ -50,3 +50,16 @@
 | tz-mix (défense en profondeur) | normalisation naïve dans `group_by_session` | `group_by_session([aware, naive])` → 1 session, plus de TypeError | ✅ tué |
 
 > Toutes les corrections Wave A passent `pytest` **et** les probes d'induction réelle. La classe de crash RC-4 (parsing fragile) est éliminée pour ces vecteurs ; reste `NEEDS-VM` la confirmation des chemins de champs `eventdata` sur un vrai `alerts.json`.
+
+### Wave A (suite) — daemon + contrat de features
+
+| Issue | Correction | Preuve (induction réelle, fichier temporaire) | Verdict |
+|-------|------------|-----------------------------------------------|---------|
+| #4 contrat ordre features | `NUMERIC_FEATURES` source unique dans `parse_logs`, importée par le daemon ; test de contrat | `test_daemon_uses_the_shared_constant`, `test_feature_count_is_14` ✅ | ✅ verrouillé |
+| #7 fenêtre aveugle au redémarrage | offset persisté (`.watch_state.json`), reprise à la position sauvegardée | `test_restart_resumes_no_blind_window` : alerte arrivée pendant l'arrêt → relue ✅ | ✅ tué |
+| #8 ligne partielle perdue | lecture binaire, ne consomme pas la ligne sans `\n` final | `test_partial_line_is_held_then_completed` : `{"x":2` retenu puis relu entier ✅ | ✅ tué |
+| #9 vote dégradé silencieux | `expected/evaluated_models` + `degraded` + log ERROR ; chaque modèle gardé | `test_degraded_is_surfaced_not_masked`, `test_a_failing_model_does_not_raise` ✅ | ✅ surfacé |
+| rotation logrotate | inode change → relecture depuis 0 | `test_rotation_reads_new_file_from_start` ✅ | ✅ |
+| P3 `utcnow()` déprécié | `datetime.now(timezone.utc)` | py_compile + suite verte | ✅ |
+
+**Suite complète : 30 passed** (19 features + 11 daemon). Le daemon tourne uniquement sur VM1 → son comportement *bout-en-bout* avec de vrais modèles + `alerts.json` reste `NEEDS-VM`, mais toute la logique testable localement est prouvée par induction.

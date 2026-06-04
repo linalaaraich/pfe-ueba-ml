@@ -67,6 +67,21 @@ DATASET_COLUMNS = [
     "session_duration_min",
 ]
 
+# Les 14 features NUMÉRIQUES réellement consommées par les modèles ML, DANS
+# L'ORDRE. Les scalers/modèles sont positionnels : c'est l'invariant le plus
+# critique du projet (un réordonnancement corrompt silencieusement toutes les
+# prédictions). SOURCE UNIQUE — importée par le notebook ET le daemon pour
+# qu'ils ne puissent jamais diverger (cf. audit RC-3, test de contrat).
+NUMERIC_FEATURES = [
+    "hour", "is_night", "is_weekend",
+    "nb_files_accessed", "nb_sensitive_files",
+    "nb_failed_logins", "nb_processes",
+    "bytes_sent", "new_ip",
+    "sensitive_path_access",
+    "z_score_files", "z_score_logins",
+    "velocity", "entropy_commands",
+]
+
 # ---------------------------------------------------------------------------
 # I/O
 # ---------------------------------------------------------------------------
