@@ -33,10 +33,31 @@
 
 ## À venir (preuve « live » du pipeline d'entraînement)
 
-- [ ] Exécution end-to-end du notebook (`nbconvert --execute`, mode synthétique)
-  pour prouver que le blocage Colab est mort et que les 3 modèles
-  s'entraînent / s'exportent / se rechargent / détectent les scénarios.
-  → en cours d'exécution, résultat consigné ici une fois terminé.
+### Preuve « live » du pipeline d'entraînement
+
+- ✅ **Portion scikit-learn prouvée bout-en-bout** (mode synthétique, venv réel,
+  `train → joblib.dump → joblib.load → predict`) :
+
+  | Scénario | Vote (IF + OCSVM) | Verdict |
+  |----------|-------------------|---------|
+  | insider-exfil (250 fichiers, 2h, 85 sensibles) | 2/2 | ANOMALY ✅ |
+  | brute-force (47 logins échoués, 3h) | 2/2 | ANOMALY ✅ |
+  | utilisateur normal (15 fichiers, 10h) | 0/2 | normal ✅ |
+
+  → `StandardScaler` + `IsolationForest` + `OneClassSVM` s'entraînent sur 300
+  sessions normales, s'exportent et se rechargent, et le vote détecte les
+  attaques. **Confirme aussi RC-2** : 2 modèles suffisent à un consensus 2/2 sur
+  les attaques synthétiques car leurs distributions sont disjointes du normal —
+  la « performance » mesure le générateur, pas le modèle.
+
+- ⚠️ **Notebook complet (avec l'Autoencoder Keras) NON exécutable dans ce bac à
+  sable** : l'installation de TensorFlow par la cellule 2 a échoué sur
+  `OSError: [Errno 28] No space left on device` (volume 18 G plein à 100 %).
+  C'est une **limite d'environnement, pas un défaut de code** :
+  - le correctif d'install (`pip install -e .`) a déjà été vérifié séparément ;
+  - sur Google Colab (la vraie cible) TF est préinstallé et le disque est ample.
+  Le test à rejouer sur Colab : `Run All` → 3 modèles entraînés, `.keras` +
+  `ae_threshold.json` exportés, cellule de rechargement OK, 4 scénarios détectés.
 
 ---
 
