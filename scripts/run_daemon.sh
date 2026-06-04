@@ -12,4 +12,4 @@ echo "[UEBA] Logs : /var/log/ueba_detection.log"
 echo "[UEBA] Alertes : /var/log/ueba_alerts.json"
 echo ""
 
-exec python -m ueba.integration.daemon --config config/config.yaml "$@"
+exec python3 -m ueba.integration.daemon --config config/config.yaml "$@"

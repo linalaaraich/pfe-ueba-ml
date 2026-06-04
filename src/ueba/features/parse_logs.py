@@ -38,7 +38,10 @@ except Exception:
 # Constantes (surchargées par config.yaml si disponible)
 # ---------------------------------------------------------------------------
 
-SENSITIVE_PATH   = _cfg.get("behavior", {}).get("sensitive_path", r"C:\Sensitive\\")
+# Défaut SANS double backslash : l'ancien r"C:\Sensitive\\" (deux backslashes)
+# ne matchait JAMAIS un vrai chemin si config.yaml était absent → feature
+# nb_sensitive_files toujours 0 (cf. audit). config.yaml reste prioritaire.
+SENSITIVE_PATH   = _cfg.get("behavior", {}).get("sensitive_path", r"C:\Sensitive")
 WORK_HOUR_START  = _cfg.get("behavior", {}).get("work_hour_start", 9)
 WORK_HOUR_END    = _cfg.get("behavior", {}).get("work_hour_end", 18)
 

@@ -11,5 +11,5 @@ OUTPUT="${2:-data/dataset.csv}"
 cd "$(dirname "$0")/.."
 
 echo "[UEBA] Export dataset depuis : $ALERTS"
-python -m ueba.features.parse_logs "$ALERTS" --output "$OUTPUT"
+python3 -m ueba.features.parse_logs "$ALERTS" --output "$OUTPUT"
 echo "[UEBA] Dataset prêt : $OUTPUT"
