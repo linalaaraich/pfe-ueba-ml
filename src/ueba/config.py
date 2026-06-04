@@ -1,6 +1,9 @@
 """
 config.py — Chargement centralisé de config/config.yaml.
 
+Retourne des valeurs par défaut si config.yaml est introuvable
+(utile en Colab ou environnements sans le fichier de config).
+
 Usage :
     from ueba.config import get_config
     cfg = get_config()
@@ -12,24 +15,65 @@ from typing import Any
 
 import yaml
 
-# Recherche config.yaml en remontant depuis ce fichier jusqu'à la racine du projet
-def _find_config() -> Path:
-    current = Path(__file__).resolve()
-    for parent in current.parents:
+# Valeurs par défaut si config.yaml est absent
+_DEFAULTS: dict[str, Any] = {
+    "wazuh": {
+        "alerts_path":    "/var/ossec/logs/alerts/alerts.json",
+        "session_minutes": 60,
+    },
+    "paths": {
+        "models_dir":   "models/",
+        "data_dir":     "data/",
+        "alert_output": "/var/log/ueba_alerts.json",
+    },
+    "behavior": {
+        "sensitive_path":   "C:\\Sensitive\\",
+        "work_hour_start":  9,
+        "work_hour_end":    18,
+    },
+    "detection": {
+        "contamination":        0.05,
+        "ae_latent_dim":        4,
+        "ae_threshold_sigma":   3.0,
+        "ensemble_threshold":   2,
+    },
+    "daemon": {
+        "poll_seconds": 30,
+        "history_size": 500,
+    },
+    "logging": {
+        "level": "INFO",
+    },
+}
+
+
+def _find_config() -> Path | None:
+    """Remonte l'arborescence depuis ce fichier pour trouver config/config.yaml."""
+    for parent in Path(__file__).resolve().parents:
         candidate = parent / "config" / "config.yaml"
         if candidate.exists():
             return candidate
-    raise FileNotFoundError(
-        "config/config.yaml introuvable. "
-        "Assurez-vous de lancer les scripts depuis la racine du projet."
-    )
+    return None
 
 
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
-    """Charge et retourne la configuration YAML."""
-    config_path = Path(path) if path else _find_config()
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    """
+    Charge et retourne la configuration YAML.
+    Retourne les valeurs par défaut si le fichier est introuvable.
+    """
+    if path:
+        config_path = Path(path)
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f)
+        return _DEFAULTS.copy()
+
+    found = _find_config()
+    if found:
+        with open(found, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    return _DEFAULTS.copy()
 
 
 # Singleton chargé à la première utilisation
@@ -37,7 +81,7 @@ _cfg: dict | None = None
 
 
 def get_config(path: str | Path | None = None) -> dict[str, Any]:
-    """Retourne la configuration (singleton)."""
+    """Retourne la configuration (singleton). Ne lève jamais d'exception."""
     global _cfg
     if _cfg is None:
         _cfg = load_config(path)
