@@ -201,7 +201,16 @@ class TestAddZscores:
 
     def test_outlier_has_high_zscore(self):
         df = add_zscores(self._df())
-        assert df["z_score_files"].iloc[-1] > 2.0
+        z = df["z_score_files"]
+        # L'outlier (100) doit être l'écart le plus fort du groupe.
+        # NB : avec un z-score d'échantillon (ddof=1) sur n=5, l'outlier gonfle
+        # lui-même σ, donc z plafonne ~1.79 — d'où un seuil réaliste (> 1.5),
+        # pas > 2.0 (l'ancienne assertion était mathématiquement fausse et le
+        # test était rouge). Le vrai enjeu — baseline figée vs fenêtre glissante
+        # — est traité dans audit/MASTER_PLAN.md (RC-1).
+        assert z.idxmax() == z.index[-1]
+        assert z.iloc[-1] > 1.5
+        assert z.iloc[-1] > z.iloc[:-1].abs().max()
 
     def test_single_row_zscore_zero(self):
         df = pd.DataFrame({

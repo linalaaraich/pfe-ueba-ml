@@ -123,21 +123,65 @@ def _parse_int(value) -> int:
         return 0
 
 
-def extract_raw_fields(alert: dict) -> Optional[dict]:
-    """Extrait les champs bruts d'une alerte Wazuh. Retourne None si inutilisable."""
-    timestamp_str = alert.get("timestamp") or _get_nested(alert, "@timestamp")
-    if not timestamp_str:
+def _parse_timestamp(value) -> Optional[datetime]:
+    """
+    Parse un timestamp Wazuh de façon robuste.
+
+    Gère : valeurs non-string (→ None), suffixe 'Z', et — important pour VM1
+    (Ubuntu 22.04 → Python 3.10) — les offsets sans ':' (ex. '+0000') et les
+    fractions de seconde, que `datetime.fromisoformat` rejette avant 3.11.
+
+    Retourne un datetime NAÏF (tzinfo retiré, heure murale conservée) pour
+    éviter le mélange aware/naïf qui faisait planter `group_by_session`
+    (TypeError: can't compare offset-naive and offset-aware datetimes).
+    """
+    if not isinstance(value, str):
         return None
-    try:
-        ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-    except ValueError:
+    s = value.strip()
+    if not s:
         return None
 
-    data    = alert.get("data", {})
-    rule    = alert.get("rule", {})
-    agent   = alert.get("agent", {})
-    sysmon  = data.get("win", {}).get("system", {}) or {}
-    evtdata = data.get("win", {}).get("eventdata", {}) or {}
+    ts = None
+    try:
+        ts = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        # Repli compatible Python 3.10 (strptime %z accepte '+0000' et '+00:00')
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S.%f%z",
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S",
+        ):
+            try:
+                ts = datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
+    if ts is None:
+        return None
+    if ts.tzinfo is not None:
+        ts = ts.replace(tzinfo=None)
+    return ts
+
+
+def extract_raw_fields(alert: dict) -> Optional[dict]:
+    """Extrait les champs bruts d'une alerte Wazuh. Retourne None si inutilisable."""
+    if not isinstance(alert, dict):
+        return None
+
+    ts = _parse_timestamp(alert.get("timestamp") or _get_nested(alert, "@timestamp"))
+    if ts is None:
+        return None
+
+    # Garde-fous : un champ peut être présent mais non-dict (entrée malformée
+    # ou hostile) — sans ces gardes, .get() lève AttributeError et, dans le
+    # daemon, fait planter toute la boucle (vecteur de DoS confirmé).
+    data    = alert.get("data")  if isinstance(alert.get("data"),  dict) else {}
+    rule    = alert.get("rule")  if isinstance(alert.get("rule"),  dict) else {}
+    agent   = alert.get("agent") if isinstance(alert.get("agent"), dict) else {}
+    win     = data.get("win")    if isinstance(data.get("win"),    dict) else {}
+    sysmon  = win.get("system")    if isinstance(win.get("system"),    dict) else {}
+    evtdata = win.get("eventdata") if isinstance(win.get("eventdata"), dict) else {}
 
     event_id = (
         str(sysmon.get("eventID", ""))
@@ -146,7 +190,7 @@ def extract_raw_fields(alert: dict) -> Optional[dict]:
         or ""
     ).strip()
 
-    username = (
+    username = str(
         evtdata.get("subjectUserName")
         or evtdata.get("targetUserName")
         or data.get("srcuser")
@@ -179,6 +223,14 @@ def extract_raw_fields(alert: dict) -> Optional[dict]:
 
 def group_by_session(raw_events: list[dict], session_minutes: int = 60) -> list[dict]:
     """Regroupe les événements en sessions (coupure si inactivité > session_minutes)."""
+    # Défense en profondeur : normaliser tout timestamp aware en naïf avant
+    # de comparer/trier, sinon un mélange aware/naïf lève
+    # "can't compare offset-naive and offset-aware datetimes". Les événements
+    # issus de extract_raw_fields sont déjà naïfs (no-op ici).
+    for ev in raw_events:
+        t = ev.get("timestamp")
+        if getattr(t, "tzinfo", None) is not None:
+            ev["timestamp"] = t.replace(tzinfo=None)
     events = sorted(raw_events, key=lambda e: (e["username"], e["timestamp"]))
     sessions: list[dict] = []
     current: dict = {}

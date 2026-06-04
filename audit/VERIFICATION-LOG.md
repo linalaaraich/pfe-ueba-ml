@@ -36,4 +36,17 @@
 - [ ] Exécution end-to-end du notebook (`nbconvert --execute`, mode synthétique)
   pour prouver que le blocage Colab est mort et que les 3 modèles
   s'entraînent / s'exportent / se rechargent / détectent les scénarios.
-  → exécuté en arrière-plan, résultat consigné ici une fois terminé.
+  → en cours d'exécution, résultat consigné ici une fois terminé.
+
+---
+
+## Wave A — corrections VÉRIFIÉES par exécution (2026-06-04)
+
+| Issue | Correction | Preuve (ré-exécutée) | Verdict |
+|-------|------------|----------------------|---------|
+| #5 test z-score rouge | assertion corrigée (max + `> 1.5`, stats ddof=1 exactes) | `pytest tests/ -q` → **19 passed** (était 1 failed/18) | ✅ vert |
+| #6/#12 crashes parser (RC-4) | `_parse_timestamp` robuste + gardes `isinstance(dict)` + `str()` username | probes ré-exécutées : `tz-mix→1 session`, `int-ts→None`, `data=[]→OK`, `+0000(py3.10)→parse`, `garbage→None` — **0 crash** | ✅ tué |
+| #6 DoS daemon (`data` non-dict) | garde `isinstance` | `extract_raw_fields({"data": []})` → plus d'AttributeError | ✅ tué |
+| tz-mix (défense en profondeur) | normalisation naïve dans `group_by_session` | `group_by_session([aware, naive])` → 1 session, plus de TypeError | ✅ tué |
+
+> Toutes les corrections Wave A passent `pytest` **et** les probes d'induction réelle. La classe de crash RC-4 (parsing fragile) est éliminée pour ces vecteurs ; reste `NEEDS-VM` la confirmation des chemins de champs `eventdata` sur un vrai `alerts.json`.
