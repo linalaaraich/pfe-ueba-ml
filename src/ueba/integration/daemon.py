@@ -37,6 +37,7 @@ from ueba.features.parse_logs import (
     build_features,
     add_zscores,
 )
+from ueba.features.baseline import apply_baseline_zscores, load_baseline
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -76,6 +77,17 @@ class UEBAModels:
         self.iso_forest = self._load("isolation_forest.pkl")
         self.ocsvm      = self._load("one_class_svm.pkl")
         self.autoencoder, self.ae_threshold = self._load_autoencoder()
+        # Baseline FIGÉE par utilisateur (z-scores cohérents train↔serve, pas de
+        # démarrage à froid). Absente → repli sur l'ancien calcul glissant.
+        self.baseline   = load_baseline(self.dir / "baseline.json")
+        if self.baseline:
+            self.log.info("Baseline figée chargée : baseline.json")
+        else:
+            self.log.warning(
+                "baseline.json absent — z-scores calculés sur la fenêtre "
+                "glissante (instables au démarrage). Exportez la baseline "
+                "depuis le notebook pour des prédictions fiables."
+            )
 
     def _load(self, filename: str):
         path = self.dir / filename
@@ -202,13 +214,24 @@ def to_scaled_vector(
     features: dict,
     scaler,
     df_history: pd.DataFrame,
+    baseline: "dict | None" = None,
 ) -> np.ndarray:
-    """Prépare le vecteur de features normalisé pour la prédiction."""
-    row     = pd.DataFrame([features])
-    combined = pd.concat([df_history, row], ignore_index=True) if not df_history.empty else row
-    combined = add_zscores(combined)
-    last    = combined.iloc[-1]
-    vec     = np.array([float(last.get(f, 0) or 0) for f in NUMERIC_FEATURES], dtype=np.float32)
+    """
+    Prépare le vecteur de features normalisé pour la prédiction.
+
+    Si une baseline FIGÉE est fournie, les z-scores sont calculés à partir d'elle
+    (cohérents avec l'entraînement, fiables dès la 1re session — fin du démarrage
+    à froid, audit RC-1). Sinon, repli sur l'ancien calcul par fenêtre glissante.
+    """
+    row = pd.DataFrame([features])
+    if baseline:
+        row = apply_baseline_zscores(row, baseline)
+        last = row.iloc[-1]
+    else:
+        combined = pd.concat([df_history, row], ignore_index=True) if not df_history.empty else row
+        combined = add_zscores(combined)
+        last = combined.iloc[-1]
+    vec = np.array([float(last.get(f, 0) or 0) for f in NUMERIC_FEATURES], dtype=np.float32)
     return scaler.transform(vec.reshape(1, -1))[0]
 
 # ---------------------------------------------------------------------------
@@ -423,7 +446,7 @@ def run(cfg: dict, verbose: bool = False) -> None:
                 for session in group_by_session(raw, session_min):
                     features = build_features(session)
                     try:
-                        x_scaled = to_scaled_vector(features, models.scaler, df_history)
+                        x_scaled = to_scaled_vector(features, models.scaler, df_history, models.baseline)
                     except Exception as e:
                         log.error("Vecteur features invalide : %s", e)
                         continue

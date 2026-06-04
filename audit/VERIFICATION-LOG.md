@@ -88,6 +88,26 @@ poussée là-bas — voir note d'identifiants ci-dessous).
 
 ---
 
+## Wave B (scaffold) — baseline FIGÉE + santé des features (RC-1 / RC-2)
+
+Décision : *scaffold now, calibrate on VM*. Mécanisme implémenté et PROUVÉ ;
+la calibration sur le vrai dataset 3 jours reste `NEEDS-VM`.
+
+| Élément | Implémentation | Preuve (exécutée) | Verdict |
+|---------|----------------|-------------------|---------|
+| Baseline figée par utilisateur (RC-1) | `ueba/features/baseline.py` : `compute/apply/save/load` ; export `models/baseline.json` depuis le notebook ; daemon la charge | `test_zscore_invariant_to_batch_composition` : même session → **z identique** seule ou noyée dans des attaques ; `test_old_recompute_was_not_invariant` démontre l'ancien bug | ✅ mécanisme prouvé |
+| Démarrage à froid daemon (RC-1) | `to_scaled_vector(..., baseline)` utilise la baseline figée au lieu de la fenêtre glissante vide | `test_std_zero_never_divides`, repli global `test_unseen_user_falls_back_to_global` | ✅ |
+| Features mortes (RC-2) | `feature_health()` + cellule notebook qui signale les features constantes (ex. `bytes_sent`) | `test_flags_dead_and_present` | ✅ détection auto |
+| Honnêteté de l'évaluation (RC-2) | note markdown + z-scores du test via baseline figée | revue | ✅ documenté |
+
+**Suite complète : 36 passed** (19 features + 11 daemon + 6 baseline).
+
+**Reste `NEEDS-VM` (calibration, non « code ») :** exporter le vrai `baseline.json`
+depuis 3 jours de données Wazuh ; lancer `feature_health` dessus pour décider des
+features à retirer ; mesurer le taux de faux positifs sur un normal tenu à l'écart.
+
+---
+
 ## Wave A — corrections VÉRIFIÉES par exécution (2026-06-04)
 
 | Issue | Correction | Preuve (ré-exécutée) | Verdict |
