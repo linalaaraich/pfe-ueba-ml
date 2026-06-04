@@ -1,0 +1,31 @@
+# ============================================================
+# UEBA ML — Configuration centralisée
+# Toutes les constantes du projet sont définies ici.
+# ============================================================
+
+wazuh:
+  alerts_path: /var/ossec/logs/alerts/alerts.json
+  session_minutes: 60          # Coupure de session après N min d'inactivité
+
+paths:
+  models_dir: models/
+  data_dir: data/
+  alert_output: /var/log/ueba_alerts.json
+
+behavior:
+  sensitive_path: 'C:\Sensitive\'
+  work_hour_start: 9
+  work_hour_end: 18
+
+detection:
+  contamination: 0.05          # Taux d'anomalies supposé (Isolation Forest / OCSVM)
+  ae_latent_dim: 4             # Dimension de l'espace latent de l'Autoencoder
+  ae_threshold_sigma: 3.0      # Seuil = μ + N×σ des erreurs de reconstruction
+  ensemble_threshold: 2        # Votes minimum pour déclencher une alerte (sur 3)
+
+daemon:
+  poll_seconds: 30             # Intervalle de polling du fichier alerts.json
+  history_size: 500            # Sessions historiques conservées pour les z-scores
+
+logging:
+  level: INFO                  # DEBUG | INFO | WARNING | ERROR
