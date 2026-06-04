@@ -1,5 +1,15 @@
 # ============================================================
-# UEBA ML — Dépendances de production
+# UEBA ML — Lockfile de PRODUCTION (versions ÉPINGLÉES)
+# ============================================================
+# ⚠️ IMPORTANT — source de vérité :
+#   `pip install -e .` (Colab, make install) lit les bornes LARGES de
+#   pyproject.toml, PAS ce fichier. Ces pins servent à REPRODUIRE sur VM1
+#   exactement l'environnement d'entraînement de Colab :
+#     - sur VM1 (daemon) :  pip install -r requirements.txt
+#   afin que le chargement des .pkl (scaler/IF/OCSVM) ne souffre pas d'un
+#   écart de version scikit-learn entre entraînement (Colab) et service (VM1).
+#   Idéalement : aligner ces versions sur le `pip freeze` de la session Colab
+#   qui a produit les modèles (cf. audit RC-3).
 # Installer : pip install -r requirements.txt
 # ============================================================
 

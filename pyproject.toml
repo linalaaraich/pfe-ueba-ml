@@ -43,6 +43,8 @@ dev = [
     "ruff>=0.4",
     "ipykernel>=6.29",
     "notebook>=7.2",
+    "nbconvert>=7.16",   # requis par `make train` (jupyter nbconvert --execute)
+    "ipywidgets>=8.1",
 ]
 
 [project.scripts]

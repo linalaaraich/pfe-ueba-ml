@@ -14,7 +14,7 @@
 ## Architecture
 
 ```
-VM2 — Windows Server 2022              VM1 — Ubuntu 24.04
+VM2 — Windows Server 2022              VM1 — Ubuntu 22.04 (GCP)
 ┌──────────────────────────┐           ┌──────────────────────────────────────┐
 │  Active Directory        │           │  Wazuh Manager + Dashboard           │
 │  Wazuh Agent             │──────────▶│  /var/ossec/logs/alerts/alerts.json  │
@@ -135,19 +135,27 @@ daemon:
 
 ---
 
-## Features UEBA (16 features)
+## Features UEBA
 
-| Feature | Description |
+`parse_logs.py` exporte **16 colonnes** par session, dont **14 features
+numériques** réellement consommées par les modèles (`NUMERIC_FEATURES`).
+`process_name` et `command_line` sont **textuels** : utilisés pour enrichir les
+alertes et calculer `entropy_commands`, mais **pas** passés aux modèles.
+
+| Feature (numérique, ML) | Description |
 |---------|-------------|
 | `hour`, `is_night`, `is_weekend` | Contexte temporel |
 | `nb_files_accessed`, `nb_sensitive_files` | Activité fichiers |
 | `nb_failed_logins` | Tentatives d'authentification |
-| `nb_processes`, `process_name`, `command_line` | Activité processus |
+| `nb_processes` | Activité processus |
 | `bytes_sent`, `new_ip` | Activité réseau |
 | `sensitive_path_access` | Accès à `C:\Sensitive\` |
 | `z_score_files`, `z_score_logins` | Déviations individuelles |
 | `velocity` | Fichiers accédés / minute |
-| `entropy_commands` | Diversité des commandes |
+| `entropy_commands` | Diversité des commandes (calculée depuis `command_line`) |
+
+> Colonnes textuelles additionnelles (non-ML) : `process_name`, `command_line`
+> ; plus `timestamp`, `username`, `session_duration_min` dans le CSV.
 
 ---
 
@@ -220,9 +228,9 @@ systemctl daemon-reload && systemctl enable --now ueba
 
 | Composant | Technologie |
 |-----------|-------------|
-| SIEM | Wazuh 4.x |
-| Cloud | Microsoft Azure (2 VMs) |
-| OS | Ubuntu 24.04 LTS / Windows Server 2022 |
+| SIEM | Wazuh 4.9.2 |
+| Cloud | Google Cloud Platform (2 VMs, e2-standard-2) |
+| OS | Ubuntu 22.04 LTS / Windows Server 2022 |
 | ML | scikit-learn 1.5, TensorFlow 2.16 |
 | Langage | Python 3.10+ |
 

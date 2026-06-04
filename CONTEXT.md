@@ -13,11 +13,13 @@ A Machine Learning Approach for Insider Threat and Malware Detection"
 **Entreprise :** Cires Technologies (filiale de Tanger Med Group)  
 **Étudiante :** Assia
 
-### Infrastructure Azure (2 VMs)
+### Infrastructure Google Cloud Platform (2 VMs, e2-standard-2)
+
+> Migré depuis Azure (projet initial annulé) vers GCP.
 
 | VM | OS | Rôle |
 |----|----|------|
-| VM1 | Ubuntu 24.04 | Wazuh Manager + Dashboard + Indexer |
+| VM1 | Ubuntu 22.04 | Wazuh 4.9.2 — Manager + Dashboard + Indexer |
 | VM2 | Windows Server 2022 | Active Directory + Wazuh Agent + Sysmon |
 
 - **Domaine Active Directory :** `ueba.local`

@@ -61,6 +61,33 @@
 
 ---
 
+## Roster ajouté — "le 1er bloc Colab ne marche toujours pas" (signalé par l'utilisateur)
+
+**Diagnostic (RCA).** Sur Colab, `IN_COLAB=True` → la cellule 2 clonait en dur
+`assia-xnz/pfe-ueba-ml` **branche par défaut (`main`)**, qui ne contient PAS
+encore les correctifs. Elle y exécutait `pip install -e .` → ancien
+`build-backend` invalide → `BackendUnavailable` → **1er bloc en erreur**, alors
+que « le reste est bon » une fois l'install réussie. De plus, en cas d'échec du
+clone, l'ancienne cellule continuait quand même (`os.chdir` + install) → erreurs
+obscures.
+
+**Correctif appliqué (cellule 2 réécrite).**
+- `REPO_URL` / `REPO_BRANCH` configurables → pointent sur la branche **qui
+  contient les correctifs** (`audit/ueba-system-review`), donc `pip install -e .`
+  réussit (build-backend déjà corrigé).
+- Clone **branch-pinned** (`git clone --branch`), **idempotent** (si le dépôt
+  existe : `fetch`+`checkout`+`pull` sur la bonne branche).
+- **Fail-loud** : helper `_run()` lève une erreur lisible (stdout+stderr) au lieu
+  de poursuivre après un clone raté.
+
+**Vérification.** Cellule compile (`py_compile` OK). La preuve définitive doit se
+faire **sur Colab** (`NEEDS-COLAB`) : `Run All` du 1er bloc → clone+install sans
+erreur. ⚠️ Pré-requis : la branche pointée doit être accessible publiquement (le
+fork `linalaaraich` l'est ; à basculer sur le dépôt d'origine une fois la branche
+poussée là-bas — voir note d'identifiants ci-dessous).
+
+---
+
 ## Wave A — corrections VÉRIFIÉES par exécution (2026-06-04)
 
 | Issue | Correction | Preuve (ré-exécutée) | Verdict |
