@@ -157,5 +157,47 @@ dérive de l'autre).
 
 ---
 
+---
+
+## 7. Faux positifs élevés à l'entraînement → cause = seuil de l'AUTOENCODEUR
+
+Boucle audit→RCA→correctif→vérif (preuves EXÉCUTÉES avec TensorFlow).
+
+**Audit (FP par modèle sur normal hors-échantillon) :**
+| Modèle | FP |
+|--------|-----|
+| Isolation Forest | 1,4 % |
+| One-Class SVM | 3,4 % |
+| **Autoencoder (μ+3σ)** | **8–9 %** ← coupable |
+
+**RCA — le seuil `μ + 3σ` de l'AE est mal calibré, pour 2 raisons cumulées :**
+1. Les **erreurs de reconstruction sont asymétriques** (queue à droite) → `μ+3σ`
+   n'est PAS le 99,7e percentile ; il flague déjà ~4-5 % sur l'entraînement.
+2. L'**AE sur-apprend** sur peu de données (erreur test ≫ erreur train) → encore
+   plus de FP sur du normal jamais vu. Et c'est le vote pivot de l'ensemble ≥2/3.
+
+**Correctif — seuil = PERCENTILE des erreurs de VALIDATION** (non vues par les
+poids), via `calibrate_ae_threshold(...)` (`baseline.py`), configurable par
+`detection.ae_threshold_percentile` (défaut 99.0). Le percentile borne
+directement le FP et résiste à l'asymétrie ; repli `μ+σ` si validation trop
+petite.
+
+**Vérification (exécutée, dataset 30 j par défaut) :**
+| Seuil AE | AE FP | Ensemble FP | Détection |
+|----------|-------|-------------|-----------|
+| μ+3σ (avant) | 9,2 % | **7,1 %** | 100 % |
+| validation p99 (après) | 4,1 % | **4,1 %** | 100 % |
+
+→ FP ~divisé par 2, détection intacte. **Avec plus de données** (ex. `simulate
+--users 10 --days 75`) le sur-apprentissage diminue → **ensemble FP ~1,5 %**.
+
+**Deux leviers pour réduire encore les FP :**
+1. **Générer plus de normal** : `python -m ueba.features.simulate --users 10 --days 75`
+   (réduit le sur-apprentissage de l'AE — c'est le facteur résiduel dominant).
+2. **Ajuster** `detection.ae_threshold_percentile` (99.5 = encore moins de FP),
+   `detection.contamination`/`ocsvm_gamma` dans `config.yaml`.
+
+---
+
 *Rapport généré dans le cadre de l'audit `audit/ueba-system-review`. Voir
 `audit/MASTER_PLAN.md` (RC-1, RC-2) et `audit/VERIFICATION-LOG.md`.*

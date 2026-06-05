@@ -70,6 +70,30 @@ class TestFrozenBaselineFixesRC1:
         assert load_baseline(tmp_path / "absent.json") is None
 
 
+class TestCalibrateAEThreshold:
+    def test_percentile_robust_to_skew(self):
+        from ueba.features.baseline import calibrate_ae_threshold
+        # erreurs asymétriques : 99 petites + 1 énorme. μ+3σ serait tiré par
+        # l'outlier ; le p99 reste près du corps de la distribution.
+        errs = [0.1] * 99 + [50.0]
+        t = calibrate_ae_threshold(errs, percentile=99.0)
+        assert 0.1 <= t < 50.0
+
+    def test_controls_false_positive_rate(self):
+        import numpy as np
+        from ueba.features.baseline import calibrate_ae_threshold
+        rng = np.random.RandomState(0)
+        val = np.abs(rng.lognormal(0, 1, 1000))      # erreurs asymétriques
+        t = calibrate_ae_threshold(val, percentile=99.0)
+        assert (val > t).mean() <= 0.02              # ~1% de FP par construction
+
+    def test_small_validation_falls_back_to_sigma(self):
+        from ueba.features.baseline import calibrate_ae_threshold
+        t = calibrate_ae_threshold([0.1, 0.2, 0.3], percentile=99.0,
+                                   fallback_mean=0.2, fallback_std=0.05, sigma=3.0)
+        assert abs(t - (0.2 + 3 * 0.05)) < 1e-9
+
+
 class TestFeatureHealth:
     def test_flags_dead_and_present(self):
         df = pd.DataFrame({"bytes_sent": [0, 0, 0, 0], "nb_files_accessed": [1, 5, 9, 3]})

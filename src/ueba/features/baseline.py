@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # (colonne source -> nom de la feature z-score). Doit rester cohérent avec
@@ -100,6 +101,30 @@ def load_baseline(path: "str | Path") -> "dict | None":
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def calibrate_ae_threshold(val_errors, percentile: float = 99.0,
+                           fallback_mean: "float | None" = None,
+                           fallback_std: "float | None" = None,
+                           sigma: float = 3.0) -> float:
+    """
+    Seuil de l'autoencodeur calibré pour MAÎTRISER les faux positifs.
+
+    Corrige l'audit (FP élevés) : `μ + kσ` sur les erreurs d'ENTRAÎNEMENT
+    sous-estime le seuil car les erreurs de reconstruction sont fortement
+    ASYMÉTRIQUES (μ+3σ ≠ 99,7e percentile → ~5-8 % de FP). On calibre plutôt sur
+    le PERCENTILE des erreurs d'un set de VALIDATION (non vu par les poids) :
+    un percentile p borne directement le taux de FP à ~(100−p) % et reflète la
+    généralisation (l'AE sur-apprend sur peu de données).
+
+    Repli sur μ+σ (entraînement) si la validation est trop petite (< 20 points).
+    """
+    val_errors = np.asarray(val_errors, dtype=float)
+    if val_errors.size >= 20:
+        return float(np.percentile(val_errors, percentile))
+    if fallback_mean is not None and fallback_std is not None:
+        return float(fallback_mean + sigma * fallback_std)
+    return float(np.percentile(val_errors, percentile)) if val_errors.size else 0.0
 
 
 def feature_health(df: pd.DataFrame, features: list[str]) -> dict:

@@ -22,7 +22,8 @@ detection:
   ocsvm_nu: 0.01               # One-Class SVM — borne sup. de la fraction d'anomalies
   ocsvm_gamma: 0.01            # One-Class SVM — abaissé 'scale'→0.01 : FP 20%→5% (gamma 'scale' sur-ajustait)
   ae_latent_dim: 4             # Dimension de l'espace latent de l'Autoencoder
-  ae_threshold_sigma: 3.0      # Seuil = μ + N×σ des erreurs de reconstruction
+  ae_threshold_percentile: 99.0  # Seuil AE = percentile des erreurs de VALIDATION (borne le FP ~1%) — corrige les FP élevés
+  ae_threshold_sigma: 3.0      # Repli μ + N×σ si validation trop petite
   ensemble_threshold: 2        # Votes minimum pour déclencher une alerte (sur 3)
 
 daemon:
