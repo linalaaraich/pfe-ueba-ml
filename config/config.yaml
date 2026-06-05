@@ -18,7 +18,9 @@ behavior:
   work_hour_end: 18
 
 detection:
-  contamination: 0.05          # Taux d'anomalies supposé (Isolation Forest / OCSVM)
+  contamination: 0.01          # Isolation Forest — abaissé 0.05→0.01 : FP normal 10%→2% (audit/DATASET_HEALTH.md)
+  ocsvm_nu: 0.01               # One-Class SVM — borne sup. de la fraction d'anomalies
+  ocsvm_gamma: 0.01            # One-Class SVM — abaissé 'scale'→0.01 : FP 20%→5% (gamma 'scale' sur-ajustait)
   ae_latent_dim: 4             # Dimension de l'espace latent de l'Autoencoder
   ae_threshold_sigma: 3.0      # Seuil = μ + N×σ des erreurs de reconstruction
   ensemble_threshold: 2        # Votes minimum pour déclencher une alerte (sur 3)
