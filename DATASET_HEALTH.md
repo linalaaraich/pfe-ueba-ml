@@ -123,5 +123,39 @@ le `dataset.csv`) et j'interprète la santé de vos vraies données.
 
 ---
 
+---
+
+## 6. Mise à jour — générateur multi-profils (corrige les constats ci-dessus)
+
+Un nouveau générateur réaliste est livré : `ueba.features.simulate`
+(`python -m ueba.features.simulate --users 8 --days 30 --output data/dataset.csv`).
+
+**Preuves exécutées** (8 profils, 45 j, 526 sessions) :
+
+| Constat (avant) | Après (générateur multi-profils) |
+|-----------------|----------------------------------|
+| 6 features **constantes/mortes** | **0** (`features constantes=[]`) |
+| 1 seul profil utilisateur | **8 profils** (bureau, finance, RH, IT, dev) aux baselines distinctes |
+| pas de variabilité | nuit 8 % · week-end 1 % · accès sensible 33 % · new_ip 3,6 % |
+
+**Faux positifs sur normal HORS-échantillon (70/30) :**
+
+| contamination / nu | Isolation Forest | One-Class SVM | Ensemble (≥2/2) |
+|--------------------|------------------|---------------|-----------------|
+| 0.05 | 8,2 % | 20,3 % | 8,2 % |
+| **0.01** | **1,9 %** | 20,3 % | **1,9 %** |
+
+→ **Deux leviers validés** : (1) données réalistes = fin des features mortes ;
+(2) **baisser `contamination`/`nu` à 0.01** fait chuter le FP de l'IF et de
+l'ensemble de ~10 % à **~2 %**.
+
+⚠️ **One-Class SVM reste à ~20 % de FP** quel que soit `nu` (sur-ajuste avec
+`gamma='scale'`). Le vote d'ensemble le masque, mais il faudrait le **régler**
+(baisser `gamma`, ou le pondérer moins) — sinon il dégrade la précision.
+Seule redondance détectée : `nb_failed_logins ~ z_score_logins` (attendu, l'un
+dérive de l'autre).
+
+---
+
 *Rapport généré dans le cadre de l'audit `audit/ueba-system-review`. Voir
 `audit/MASTER_PLAN.md` (RC-1, RC-2) et `audit/VERIFICATION-LOG.md`.*
