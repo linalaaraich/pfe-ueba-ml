@@ -1,0 +1,127 @@
+# Audit de santé du dataset — pourquoi « les résultats ne sont pas exacts »
+
+> **TL;DR.** Le code s'exécute, mais les résultats sont biaisés par les **données**,
+> pas par les modèles. Sur le jeu **synthétique** (celui utilisé par défaut,
+> `USE_REAL_DATA=False`), le diagnostic exécuté montre **un taux de faux positifs
+> de 10–20 % sur du normal jamais vu** et **6 features sur 14 constantes (mortes)**
+> dans le normal d'entraînement. La « détection à 100 % » des attaques est en
+> grande partie un **artefact** : les attaques synthétiques diffèrent du normal
+> surtout sur des features qui sont *constantes* dans le normal.
+>
+> Date : 2026-06-04 · Outil : `python -m ueba.features.health <dataset.csv>` ·
+> Preuves : **exécutées** (venv réel, scikit-learn 1.9), pas spéculées.
+
+---
+
+## 1. Comment lire ce rapport
+
+Je n'ai **pas** accès à votre vrai `data/dataset.csv` (il est `gitignored` et vit
+sur VM1). Le diagnostic ci-dessous a donc été lancé sur le **jeu synthétique
+reproduit à l'identique depuis le notebook** — c'est précisément ce que vous
+exécutez avec `USE_REAL_DATA=False`. Un **outil réutilisable** est fourni pour
+auditer votre vrai dataset (section 5).
+
+---
+
+## 2. Diagnostic exécuté (jeu synthétique, 300 normal + 80 attaques)
+
+### A. Santé du *normal* d'entraînement
+
+| Constat | Détail | Gravité |
+|--------|--------|---------|
+| **Features constantes / mortes** | `is_night`, `is_weekend`, `new_ip`, `sensitive_path_access` = **0 dans 100 % des sessions normales** (codé en dur par le générateur) | 🔴 |
+| Variance nulle ⇒ aucun signal | `StandardScaler` met `scale_=1` pour ces colonnes ; elles n'apprennent rien au modèle | 🔴 |
+| Faible diversité | 300 sessions, 1 seul profil utilisateur | 🟠 |
+
+> Conséquence : le modèle apprend « normal = ces 4 signaux valent 0 ». Toute
+> session légitime de nuit / le week-end / depuis une nouvelle IP / touchant un
+> dossier sensible sera donc **étiquetée anomalie** — alors que c'est un
+> comportement réel parfaitement possible.
+
+### B. Séparabilité normal vs attaque (écart en σ)
+
+```
+new_ip 2.24σ · entropy_commands 2.18σ · is_night 1.93σ · bytes_sent 1.92σ
+sensitive_path_access 1.91σ · velocity 1.85σ · nb_processes 1.74σ · nb_files 1.67σ
+```
+
+Les attaques se distinguent surtout via `new_ip`, `is_night`,
+`sensitive_path_access` — **exactement les features constantes dans le normal**.
+La « détection » repose donc sur des dimensions sans variance à l'entraînement :
+ça marche en synthétique, **ça ne tiendra pas sur données réelles** où ces
+features varient.
+
+### C. Impact modélisation — **le vrai problème**
+
+| Mesure | Isolation Forest | One-Class SVM | Ensemble (≥2/2) |
+|--------|------------------|---------------|-----------------|
+| FP sur normal d'entraînement | 5,0 % | 12,0 % | — |
+| **FP sur normal HORS-échantillon** | **10,0 %** | **20,0 %** | **10,0 %** |
+| Détection des attaques | 100 % | 100 % | — |
+
+**~1 session normale sur 10 (voire 1 sur 5 pour l'OCSVM) est faussement
+signalée.** C'est très probablement le « résultats pas exacts » que vous
+observez : le système crie au loup sur du comportement normal.
+
+---
+
+## 3. Diagnostic (RCA) — pourquoi
+
+1. **`contamination=0.05` / `nu=0.05` trop élevés.** Entraînés sur du normal
+   *propre*, ces modèles sont *forcés* d'étiqueter ~5 % de l'entraînement comme
+   anomalies — et ça généralise à **10–20 % hors-échantillon**. C'est par
+   conception, pas un bug. → cause directe du taux de faux positifs.
+2. **One-Class SVM (`nu=0.05`, `gamma='scale'`) sur-ajuste** → 20 % de FP
+   hors-échantillon, le pire des trois.
+3. **Normal synthétique irréaliste** : 4 features à variance nulle ⇒ frontière de
+   « normalité » trop serrée sur les dimensions qui varient, trop lâche sur les
+   autres.
+4. **Volume faible** (300 sessions, 1 profil) ⇒ modèles sous-entraînés, seuils
+   instables (l'Autoencoder calibre μ+3σ sur ces 300 lignes).
+5. **« 100 % de détection » trompeur** : mesure la séparabilité du *générateur*,
+   pas la capacité réelle du modèle (audit RC-2).
+
+---
+
+## 4. Recommandations (par priorité)
+
+| # | Action | Effet attendu | Où |
+|---|--------|---------------|-----|
+| 1 | **Baisser `contamination` et `nu`** (essayer 0.01, voire 0.005) | FP ↓ fortement | `config.yaml` `detection.contamination`, notebook OCSVM `nu` |
+| 2 | **Calibrer les seuils sur un FP cible** (ex. « < 2 % sur normal tenu à l'écart ») au lieu d'une valeur fixe | FP maîtrisé, défendable au jury | notebook éval. |
+| 3 | **Rendre le normal réaliste** : injecter de la variabilité (un peu de travail de nuit/week-end, IP multiples, accès sensibles occasionnels) **ou** — mieux — utiliser le **vrai** dataset Wazuh | features non-constantes, séparation honnête | générateur / VM1 |
+| 4 | **Utiliser la baseline figée** (déjà ajoutée, Wave B) pour des z-scores réels et cohérents | z_score_* vivants | `baseline.json` |
+| 5 | **Évaluer le FP sur un normal hors-échantillon** et rapporter CE chiffre | métrique honnête | notebook |
+| 6 | **Retirer / re-sourcer les features mortes** une fois confirmées sur données réelles (ex. `bytes_sent`) | modèle plus sain | `NUMERIC_FEATURES` |
+
+> ⚠️ Les seuils exacts (#1, #2) doivent être **calibrés sur vos vraies données**.
+> Le mécanisme est prêt ; la valeur dépend du dataset → `NEEDS-VM`.
+
+---
+
+## 5. Auditez VOTRE vrai dataset
+
+Un outil réutilisable est livré : [`src/ueba/features/health.py`](src/ueba/features/health.py).
+
+```bash
+# sur VM1, après avoir généré data/dataset.csv depuis Wazuh
+python -m ueba.features.health data/dataset.csv --label label
+```
+
+Il signale automatiquement : volume faible, features constantes/mortes (ex.
+`bytes_sent` toujours 0 sur du vrai Sysmon), NaN, doublons, redondances, et —
+si des labels existent — la séparabilité triviale. **Collez-moi sa sortie** (ou
+le `dataset.csv`) et j'interprète la santé de vos vraies données.
+
+### Checklist « dataset réel sain »
+- [ ] **> quelques centaines** de sessions, idéalement plusieurs profils
+- [ ] Aucune feature **constante** (sinon variabilité réelle manquante ou capteur muet)
+- [ ] `bytes_sent` **non nul** (sinon Sysmon EID 3 ne porte pas l'octet → re-sourcer)
+- [ ] z_score_* calculés via la **baseline figée**, pas la population du lot
+- [ ] FP mesuré **sur un normal tenu à l'écart**, pas sur l'entraînement
+- [ ] Heures de travail réalistes (un peu de nuit/week-end légitime)
+
+---
+
+*Rapport généré dans le cadre de l'audit `audit/ueba-system-review`. Voir
+`audit/MASTER_PLAN.md` (RC-1, RC-2) et `audit/VERIFICATION-LOG.md`.*
