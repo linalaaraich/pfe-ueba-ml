@@ -36,6 +36,14 @@ def test_realistic_rates_present():
     assert 0.0 < df["new_ip"].mean() < 0.3
 
 
+def test_is_night_derived_from_hour():
+    # is_night doit être STRICTEMENT dérivé de l'heure (règle canonique de
+    # parse_logs : hour<9 ou hour>=18) — sinon skew train/serve (re-audit P1).
+    df = simulate_dataset(n_users=8, days=30, seed=1)
+    expected = ((df["hour"] < 9) | (df["hour"] >= 18)).astype(int)
+    assert (df["is_night"] == expected).all()
+
+
 def test_reproducible_with_seed():
     a = simulate_dataset(n_users=4, days=10, seed=7)
     b = simulate_dataset(n_users=4, days=10, seed=7)

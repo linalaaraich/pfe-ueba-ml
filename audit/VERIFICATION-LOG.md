@@ -108,6 +108,50 @@ features à retirer ; mesurer le taux de faux positifs sur un normal tenu à l'�
 
 ---
 
+## RE-AUDIT (boucle de contrôle) — 2026-06-04/05
+
+3 agents adversariaux (read-only) sur la surface modifiée + preuve EXÉCUTÉE.
+
+### Preuve exécutée — chemin LIVE du daemon avec baseline figée
+`simulate → compute_baseline → export (scaler/IF/OCSVM + baseline.json) →
+UEBAModels charge les artefacts → predict` (sans TF) :
+
+| Session (démarrage à FROID, df_history vide) | Vote | Verdict |
+|----------------------------------------------|------|---------|
+| normal | 0/2 | pas d'alerte ✅ |
+| attaque | 2/2 | alerte ✅ |
+
+→ **RC-1 confirmé MORT en conditions réelles** : z-scores pris dans la baseline
+figée dès la 1re session (plus de démarrage à froid). Contrat train↔serve OK
+(le daemon charge exactement les artefacts du notebook). Suite : **53 passed**.
+
+### Constats des agents → traités
+| Sév | Constat | Statut |
+|-----|---------|--------|
+| **P1** | `simulate` : `is_night` tiré au hasard, décorrélé de `hour` (désaccord ~6,5 % vs règle canonique `hour<9 ou ≥18`) → skew train/serve | ✅ **corrigé** : `is_night` dérivé de `hour` ; test `test_is_night_derived_from_hour` (450/450 lignes OK) |
+| P2 | `otrf` : `src_ip` reprenait `SourceIsIpv6` (booléen, pas une IP) | ✅ **corrigé** : retiré (probe → `''`) |
+| P2 | écart ddof : baseline (ddof=0) vs `simulate` (ddof=1) sur le CSV | ✅ **corrigé** : `simulate` calcule les z-scores via la baseline (ddof=0) |
+| P3 | notebook : inventaire omettait `baseline.json` | ✅ ajouté à `expected_files` |
+| P3 | notebook re-déclare `NUMERIC_FEATURES` (byte-identique, gardé par test) | accepté (cosmétique) |
+| P3 | `confidence`=1.0 dans un vote dégradé non-déclencheur | accepté (loggé `degraded`, ne peut pas fausser-déclencher) |
+
+**Verdicts agents :** notebook « WOULD RUN-ALL: yes » ; daemon « LIVE PATH: works » ;
+modules « OK » après corrections. **Aucun P0.**
+
+### État des causes racines
+- **RC-1** (baseline figée train↔serve) : ✅ corrigé + prouvé en live.
+- **RC-2** (données synthétiques irréalistes / features mortes) : ✅ générateur
+  multi-profils (0 feature constante) + `feature_health` + contamination/nu/gamma
+  réglés (FP 10-20 % → ~2-5 %). Validation finale sur vraies données = `NEEDS-VM`.
+- **RC-3** (double source de vérité) : ✅ hyperparamètres depuis `config.yaml`,
+  `NUMERIC_FEATURES` source unique + test de contrat, docs alignées (GCP/22.04).
+- **RC-4** (échec silencieux / parsing fragile) : ✅ gardes parser, vote dégradé
+  surfacé, watcher robuste — tous prouvés par induction.
+- **RC-5** (tests ne protègent pas les invariants) : ✅ 53 tests (parser, daemon,
+  baseline, simulate, otrf, health, contrat de config).
+
+---
+
 ## Wave A — corrections VÉRIFIÉES par exécution (2026-06-04)
 
 | Issue | Correction | Preuve (ré-exécutée) | Verdict |

@@ -89,7 +89,7 @@ def extract_otrf_event(event: dict) -> Optional[dict]:
         "event_id":     event_id,
         "rule_id":      "",
         "agent_name":   str(_get_ci(event, "Hostname", "Computer", "host") or ""),
-        "src_ip":       str(_get_ci(event, "IpAddress", "SourceIp", "SourceIsIpv6") or ""),
+        "src_ip":       str(_get_ci(event, "IpAddress", "SourceIp") or ""),
         "file_path":    str(_get_ci(event, "TargetFilename", "ObjectName") or ""),
         "process_name": str(_get_ci(event, "Image", "NewProcessName", "ProcessName") or ""),
         "command_line": str(_get_ci(event, "CommandLine") or ""),

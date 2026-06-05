@@ -36,7 +36,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from ueba.features.parse_logs import _entropy, add_zscores, DATASET_COLUMNS
+from ueba.features.parse_logs import (
+    _entropy,
+    DATASET_COLUMNS,
+    WORK_HOUR_START,
+    WORK_HOUR_END,
+)
+from ueba.features.baseline import apply_baseline_zscores, compute_baseline
 
 # ── Profils de rôle : chaque rôle a des plages de comportement distinctes ──
 # files=(moy, σ) fichiers/session ; proc=(moy, σ) processus ; bytes=(moy, σ) ;
@@ -102,12 +108,17 @@ def _pos_int(rng, mu, sd, lo=0):
 def simulate_session(user: dict, day: datetime, rng: random.Random,
                      weekend: bool = False) -> dict:
     """Génère UNE session normale réaliste pour `user` le jour `day`."""
-    w0, w1 = user["work"]
-    night = rng.random() < user["p_night"]
-    if night:
-        hour = rng.choice(list(range(0, w0)) + list(range(w1, 24)))
+    # On tire D'ABORD l'heure, puis is_night en est DÉRIVÉ avec la règle
+    # canonique (identique à parse_logs.build_features : hour < START ou >= END).
+    # Sinon le modèle apprendrait une relation hour↔is_night absente au service.
+    if rng.random() < user["p_night"]:
+        # session planifiée hors heures ouvrées
+        hour = rng.choice([h for h in range(24)
+                           if h < WORK_HOUR_START or h >= WORK_HOUR_END])
     else:
-        hour = min(23, max(0, int(rng.gauss((w0 + w1) / 2, (w1 - w0) / 4))))
+        lo, hi = WORK_HOUR_START, WORK_HOUR_END - 1     # heures ouvrées strictes
+        hour = min(hi, max(lo, int(rng.gauss((lo + hi) / 2, 2))))
+    is_night = int(hour < WORK_HOUR_START or hour >= WORK_HOUR_END)
     ts = day.replace(hour=hour, minute=rng.randint(0, 59), second=0, microsecond=0)
 
     nb_files = _pos_int(rng, user["files_mu"], user["files_sd"])
@@ -133,7 +144,7 @@ def simulate_session(user: dict, day: datetime, rng: random.Random,
         "timestamp": ts.isoformat(),
         "username": user["username"],
         "hour": hour,
-        "is_night": int(night),
+        "is_night": is_night,
         "is_weekend": int(weekend),
         "nb_files_accessed": nb_files,
         "nb_sensitive_files": nb_sens,
@@ -175,7 +186,10 @@ def simulate_dataset(n_users: int = 8, days: int = 30, sessions_per_day: float =
                     rows.append(simulate_session(u, day, rng, weekend=False))
 
     df = pd.DataFrame(rows)
-    df = add_zscores(df)                       # z-scores par utilisateur
+    # z-scores via la baseline figée (ddof=0) — cohérent avec l'entraînement ET
+    # le service (le daemon utilise apply_baseline_zscores). Évite l'écart ddof
+    # de l'ancien add_zscores (ddof=1) sur le CSV.
+    df = apply_baseline_zscores(df, compute_baseline(df))
     cols = [c for c in DATASET_COLUMNS if c in df.columns] + ["label"]
     return df[[c for c in cols if c in df.columns]]
 
