@@ -227,7 +227,9 @@ def extract_raw_fields(alert: dict) -> Optional[dict]:
         "process_name": (
             evtdata.get("image")
             or evtdata.get("parentImage")
-            or data.get("process", {}).get("name", "")
+            # `data.process` peut être non-dict dans une alerte malformée/hostile →
+            # garde isinstance (sinon AttributeError = crash du daemon, DoS).
+            or (data.get("process") if isinstance(data.get("process"), dict) else {}).get("name", "")
             or ""
         ),
         "command_line": evtdata.get("commandLine") or "",

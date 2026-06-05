@@ -149,3 +149,44 @@ class TestAlertsWatcher:
             fh.write('not-json\n{"ok":1}\n')
         assert w.read_new() == [{"ok": 1}]
         w.close()
+
+    def test_copytruncate_no_blind_window(self, tmp_path):
+        # logrotate copytruncate : même inode, fichier tronqué À 0 puis ré-alimenté.
+        f = tmp_path / "a.json"; f.write_text("")
+        w = AlertsWatcher(str(f), state_path=str(tmp_path / "s.json"))
+        w.open()
+        with open(f, "a") as fh:
+            fh.write('{"n":1}\n')
+        assert w.read_new() == [{"n": 1}]
+        open(f, "w").close()                   # truncate à 0 (taille < _pos)
+        assert w.read_new() == []              # rien encore, mais _pos remis à 0
+        with open(f, "a") as fh:
+            fh.write('{"n":2}\n')              # nouvelle alerte après rotation
+        assert w.read_new() == [{"n": 2}]      # lue, pas de fenêtre aveugle
+        w.close()
+
+
+class TestUEBAModelsDegradation:
+    def _min_models(self, d):
+        import joblib
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.ensemble import IsolationForest
+        X = np.random.RandomState(0).rand(30, len(dmn.NUMERIC_FEATURES))
+        joblib.dump(StandardScaler().fit(X), f"{d}/scaler.pkl")
+        joblib.dump(IsolationForest(random_state=0).fit(X), f"{d}/isolation_forest.pkl")
+
+    def test_corrupt_ae_threshold_does_not_crash(self, tmp_path):
+        import logging
+        self._min_models(str(tmp_path))
+        (tmp_path / "ae_threshold.json").write_text("{ this is not json")
+        m = dmn.UEBAModels(str(tmp_path), logging.getLogger("t"))  # ne doit pas lever
+        assert m.is_ready() is True
+        assert m.ae_threshold == 0.05          # repli par défaut
+        assert m.autoencoder is None
+
+    def test_missing_baseline_is_safe(self, tmp_path):
+        import logging
+        self._min_models(str(tmp_path))
+        m = dmn.UEBAModels(str(tmp_path), logging.getLogger("t"))
+        assert m.baseline is None              # absent → repli fenêtre glissante
+        assert m.is_ready() is True

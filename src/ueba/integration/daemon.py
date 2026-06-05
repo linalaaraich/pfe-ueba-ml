@@ -105,7 +105,10 @@ class UEBAModels:
         thr   = 0.05
         tpath = self.dir / "ae_threshold.json"
         if tpath.exists():
-            thr = json.loads(tpath.read_text()).get("threshold", thr)
+            try:
+                thr = json.loads(tpath.read_text()).get("threshold", thr)
+            except (OSError, json.JSONDecodeError, AttributeError) as e:
+                self.log.warning("ae_threshold.json illisible (%s) — seuil par défaut %.3f", e, thr)
         ae = None
         keras_path = self.dir / "autoencoder.keras"
         if keras_path.exists():
@@ -113,8 +116,11 @@ class UEBAModels:
                 from tensorflow import keras
                 ae = keras.models.load_model(str(keras_path))
                 self.log.info("Autoencoder chargé depuis autoencoder.keras")
-            except ImportError:
-                self.log.warning("TensorFlow absent — autoencoder désactivé")
+            except Exception as e:
+                # ImportError (TF absent) MAIS AUSSI erreur de chargement (skew de
+                # version Keras Colab↔VM, fichier corrompu) → dégrader proprement,
+                # ne jamais planter le démarrage du daemon.
+                self.log.warning("Autoencoder non chargé (%s) — désactivé", e)
         else:
             self.log.warning("Modèle introuvable : %s", keras_path)
         return ae, thr
@@ -279,9 +285,10 @@ def emit_alert(features: dict, result: dict, output_path: str, log: logging.Logg
     colors = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[93m"}
     reset  = "\033[0m"
     log.warning(
-        "%s[ALERTE %s] user=%s | confidence=%s | votes=%d/3%s",
+        "%s[ALERTE %s] user=%s | confidence=%s | votes=%d/%d%s",
         colors.get(severity, ""), severity,
-        alert["username"], alert["confidence"], alert["votes"], reset,
+        alert["username"], alert["confidence"], alert["votes"],
+        result.get("expected_models", 3), reset,
     )
     try:
         with open(output_path, "a", encoding="utf-8") as f:
@@ -351,13 +358,18 @@ class AlertsWatcher:
     def read_new(self) -> list[dict]:
         alerts: list[dict] = []
         if self._path.exists():
-            inode = self._path.stat().st_ino
+            st = self._path.stat()
+            inode = st.st_ino
             if self._file is None or inode != self._inode:
                 if self._file:
                     self._file.close()
                 self._file  = open(self._path, "rb")
                 self._inode = inode
                 self._pos   = 0  # nouveau fichier après rotation → depuis le début
+            elif st.st_size < self._pos:
+                # copytruncate (logrotate) : même inode mais fichier tronqué →
+                # repartir de 0, sinon fenêtre aveugle permanente (RC-4).
+                self._pos = 0
 
         if not self._file:
             return alerts
@@ -441,7 +453,17 @@ def run(cfg: dict, verbose: bool = False) -> None:
     while running[0]:
         new_alerts = watcher.read_new()
         if new_alerts:
-            raw = [e for a in new_alerts if (e := extract_raw_fields(a))]
+            # Défense en profondeur : une alerte hostile/malformée ne doit jamais
+            # tuer la boucle (en plus des gardes dans extract_raw_fields).
+            raw = []
+            for a in new_alerts:
+                try:
+                    e = extract_raw_fields(a)
+                except Exception as exc:
+                    log.error("Alerte ignorée (extraction impossible) : %s", exc)
+                    continue
+                if e:
+                    raw.append(e)
             if raw:
                 for session in group_by_session(raw, session_min):
                     features = build_features(session)
@@ -453,9 +475,9 @@ def run(cfg: dict, verbose: bool = False) -> None:
 
                     result = predict(models, x_scaled, vote_threshold)
                     log.info(
-                        "Session user=%s | anomaly=%s | votes=%d/3 | conf=%s",
+                        "Session user=%s | anomaly=%s | votes=%d/%d | conf=%s",
                         features["username"], result["is_anomaly"],
-                        result["votes"], result["confidence"],
+                        result["votes"], result["expected_models"], result["confidence"],
                     )
                     if result["is_anomaly"]:
                         emit_alert(features, result, output_path, log)

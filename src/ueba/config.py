@@ -10,6 +10,7 @@ Usage :
     alerts_path = cfg["wazuh"]["alerts_path"]
 """
 
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -61,19 +62,18 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     Charge et retourne la configuration YAML.
     Retourne les valeurs par défaut si le fichier est introuvable.
     """
-    if path:
-        config_path = Path(path)
-        if config_path.exists():
-            with open(config_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
-        return _DEFAULTS.copy()
-
-    found = _find_config()
-    if found:
-        with open(found, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
-
-    return _DEFAULTS.copy()
+    # deepcopy : ne jamais renvoyer une référence vers _DEFAULTS (une mutation
+    # côté appelant corromprait le défaut global pour tout le process).
+    target = Path(path) if path else _find_config()
+    if target and Path(target).exists():
+        try:
+            with open(target, "r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f)
+            # yaml.safe_load renvoie None pour un fichier vide / commentaires seuls
+            return loaded if isinstance(loaded, dict) else copy.deepcopy(_DEFAULTS)
+        except (OSError, yaml.YAMLError):
+            return copy.deepcopy(_DEFAULTS)   # docstring : ne lève jamais
+    return copy.deepcopy(_DEFAULTS)
 
 
 # Singleton chargé à la première utilisation

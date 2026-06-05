@@ -75,6 +75,14 @@ class TestExtractRawFields:
         result = extract_raw_fields(alert)
         assert result["username"] == "administrator"
 
+    def test_non_dict_data_process_does_not_crash(self):
+        # `data.process` non-dict (alerte hostile/malformée) ne doit PAS lever
+        # AttributeError (sinon crash de la boucle du daemon = DoS).
+        alert = {"timestamp": "2024-01-15T10:00:00+00:00", "data": {"process": "evil"}}
+        result = extract_raw_fields(alert)
+        assert result is not None
+        assert result["process_name"] == ""
+
 
 # ---------------------------------------------------------------------------
 # Tests group_by_session

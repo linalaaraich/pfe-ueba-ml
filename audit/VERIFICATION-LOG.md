@@ -152,6 +152,28 @@ modules « OK » après corrections. **Aucun P0.**
 
 ---
 
+## AUDIT FINAL (avant entraînement) — durcissement du chemin de SERVICE
+
+3e passe line-by-line (2 agents). Entraînement = **PRÊT** (Run All, preuve
+exécutée : export → reload → scénarios normal 0/2, insider/malware/bruteforce 2/2,
+FP hors-échantillon 0 %). Le chemin **daemon (VM1)** avait des bugs réels →
+corrigés :
+
+| Sév | Bug (chemin service) | Correctif | Test |
+|-----|----------------------|-----------|------|
+| **P0** | `data.process` non-dict → `AttributeError` → crash boucle daemon (DoS par une alerte hostile) | garde `isinstance` dans `extract_raw_fields` + boucle daemon try/except par alerte | `test_non_dict_data_process_does_not_crash` |
+| **P1** | chargement `autoencoder.keras` n'attrapait que `ImportError` → crash si skew version Keras | `except Exception` → dégradation propre | `test_corrupt_*` |
+| **P1** | `copytruncate` (logrotate) → fenêtre aveugle permanente | reset `_pos=0` si `taille < _pos` | `test_copytruncate_no_blind_window` |
+| **P2** | `config.yaml` vide/commentaires → `None` → crash daemon | `load_config` renvoie les défauts si non-dict, ne lève jamais | `test_empty_file_returns_defaults` |
+| **P2** | `ae_threshold.json` corrompu → crash démarrage | `try/except` → seuil par défaut | `test_corrupt_ae_threshold_does_not_crash` |
+| **P3** | `_DEFAULTS.copy()` superficiel ; logs `votes=%d/3` en dur | `deepcopy` ; `votes/expected_models` | `test_returns_independent_copy` |
+
+**Suite : 61 passed** (8 ajoutés). Aucun P0/P1/P2 restant. Le daemon survit
+désormais à une alerte malformée/hostile, à un skew de version Keras, à
+`copytruncate`, et à une config vide/corrompue.
+
+---
+
 ## Wave A — corrections VÉRIFIÉES par exécution (2026-06-04)
 
 | Issue | Correction | Preuve (ré-exécutée) | Verdict |
