@@ -81,3 +81,24 @@ class TestToScaledVectorNaNSafe:
         out = to_scaled_vector(feats, scaler, pd.DataFrame(),
                                baseline={"per_user": {}, "global": {}})
         assert np.all(np.isfinite(out))
+
+
+class TestHealthSeparability:
+    def test_binary_perfect_separator_is_flagged(self):
+        # un 0/1 qui sépare PARFAITEMENT doit être marqué trivialement séparable
+        # (l'ancienne σ globale plafonnait ~2σ et ratait ce cas — RC-2 dormant).
+        from ueba.features.health import audit_dataframe
+        df = pd.DataFrame({"new_ip": [0, 0, 0, 0, 1, 1, 1, 1],
+                           "label":  [0, 0, 0, 0, 1, 1, 1, 1]})
+        rep = audit_dataframe(df, ["new_ip"], label_col="label")
+        assert "new_ip" in rep["trivially_separable_features"]
+
+
+class TestOtrfLabel:
+    def test_label_column_set(self, tmp_path):
+        from ueba.features.otrf import parse_otrf_to_dataframe
+        f = tmp_path / "o.json"
+        f.write_text(json.dumps({"@timestamp": "2024-01-15T10:00:00.000Z",
+                                 "EventID": 1, "Image": "x.exe", "User": r"D\u"}))
+        df = parse_otrf_to_dataframe(str(f), label=1)
+        assert "label" in df.columns and (df["label"] == 1).all()

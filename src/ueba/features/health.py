@@ -96,11 +96,21 @@ def audit_dataframe(df: pd.DataFrame, features: list[str] | None = None,
             for f in nonconst:
                 col = pd.to_numeric(df[f], errors="coerce")
                 mu_n, mu_a = col[~is_attack].mean(), col[is_attack].mean()
-                sd = col.std(ddof=0) or 1.0
-                sep.append({"feature": f, "separation_sigma": round(abs(mu_a - mu_n) / sd, 2)})
+                # Écart en σ INTRA-CLASSE (Cohen's d), pas σ globale : sinon une
+                # feature binaire 0/1 qui sépare PARFAITEMENT plafonne ~2σ et
+                # n'est jamais détectée comme triviale. σ poolée → ∞ si parfait.
+                sd_n = float(col[~is_attack].std(ddof=0))
+                sd_a = float(col[is_attack].std(ddof=0))
+                pooled = ((sd_n ** 2 + sd_a ** 2) / 2) ** 0.5
+                if pooled > 0:
+                    d = abs(mu_a - mu_n) / pooled
+                else:  # variance intra-classe nulle : séparation parfaite si μ diffèrent
+                    d = float("inf") if mu_a != mu_n else 0.0
+                sep.append({"feature": f,
+                            "separation_sigma": round(d, 2) if d != float("inf") else 999.99})
             sep.sort(key=lambda x: -x["separation_sigma"])
             rep["separability_top"] = sep[:8]
-            # Séparabilité triviale : bcp de features à très grand écart (>3σ)
+            # Séparabilité triviale : Cohen's d > 3 (écart énorme, y c. binaire parfait)
             trivial = [s for s in sep if s["separation_sigma"] > 3.0]
             rep["trivially_separable_features"] = [s["feature"] for s in trivial]
 

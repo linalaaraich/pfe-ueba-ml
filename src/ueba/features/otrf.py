@@ -130,8 +130,16 @@ def _read_json_records(filepath: str) -> list[dict]:
     return records
 
 
-def parse_otrf_to_dataframe(filepath: str, session_minutes: int = 60) -> pd.DataFrame:
-    """Pipeline complet : dataset OTRF → DataFrame de features UEBA."""
+def parse_otrf_to_dataframe(filepath: str, session_minutes: int = 60,
+                            label: "int | None" = None) -> pd.DataFrame:
+    """
+    Pipeline complet : dataset OTRF → DataFrame de features UEBA.
+
+    `label` : si fourni, ajoute une colonne `label` constante à toutes les
+    sessions. INDISPENSABLE pour une capture d'ATTAQUE (label=1) — sinon le
+    notebook (USE_REAL_DATA) traite tout le CSV comme NORMAL (label=0) et
+    entraînerait des attaques comme baseline (audit reaudit-data).
+    """
     records = _read_json_records(filepath)
     print(f"[INFO] {len(records)} événements OTRF chargés")
     raw = [e for r in records if (e := extract_otrf_event(r))]
@@ -143,7 +151,10 @@ def parse_otrf_to_dataframe(filepath: str, session_minutes: int = 60) -> pd.Data
     print(f"[INFO] {len(sessions)} sessions construites")
     df = pd.DataFrame([build_features(s) for s in sessions])
     df = add_zscores(df)
+    if label is not None:
+        df["label"] = int(label)
     cols = [c for c in DATASET_COLUMNS if c in df.columns]
+    cols += [c for c in ("label",) if c in df.columns and c not in cols]
     df = df[cols]
     print(f"[OK] DataFrame : {df.shape[0]} sessions × {df.shape[1]} colonnes")
     if "username" in df.columns:
@@ -158,9 +169,12 @@ def main():
     ap.add_argument("filepath", help="Dataset OTRF (.json / .json.gz / NDJSON)")
     ap.add_argument("--output", "-o", default="data/dataset.csv")
     ap.add_argument("--session-min", type=int, default=60)
+    ap.add_argument("--label", type=int, default=None,
+                    help="Label constant (0=normal, 1=attaque) — METTRE 1 pour "
+                         "une capture d'attaque, sinon entraînée comme normal.")
     args = ap.parse_args()
 
-    df = parse_otrf_to_dataframe(args.filepath, args.session_min)
+    df = parse_otrf_to_dataframe(args.filepath, args.session_min, label=args.label)
     if df.empty:
         print("[ERREUR] Aucune donnée extraite — vérifiez le format/les champs.",
               file=sys.stderr)
