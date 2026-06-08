@@ -67,3 +67,4 @@ target-version = ["py310"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+pythonpath = ["src"]   # `pytest` fonctionne sans PYTHONPATH=src ni install -e

@@ -17,6 +17,7 @@ Auteur  : Assia — PFE Cires Technologies / Tanger Med Group
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import signal
@@ -238,6 +239,9 @@ def to_scaled_vector(
         combined = add_zscores(combined)
         last = combined.iloc[-1]
     vec = np.array([float(last.get(f, 0) or 0) for f in NUMERIC_FEATURES], dtype=np.float32)
+    # NaN/inf → 0 : `float(nan or 0)` vaut nan (nan est truthy), ce qui ferait
+    # planter scaler/predict → vote dégradé silencieux. On neutralise.
+    vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
     return scaler.transform(vec.reshape(1, -1))[0]
 
 # ---------------------------------------------------------------------------
@@ -316,12 +320,33 @@ class AlertsWatcher:
     - Rotation détectée par changement d'inode.
     """
 
+    _FP_LEN = 64   # octets de tête servant d'empreinte anti-rotation
+
     def __init__(self, filepath: str, state_path: "str | None" = None):
         self._path  = Path(filepath)
         self._state = Path(state_path) if state_path else None
         self._file  = None
         self._inode = None
         self._pos   = 0
+        self._head  = ""   # empreinte des _FP_LEN premiers octets
+
+    def _prefix_fp(self, pos: int) -> str:
+        """Empreinte (sha1) du PRÉFIXE DÉJÀ CONSOMMÉ (min(_FP_LEN, pos) octets).
+
+        On empreinte les octets AVANT `pos` : une simple extension (append) ne
+        les modifie jamais, mais une RÉÉCRITURE (copytruncate puis ré-alimenté,
+        ou réécriture pendant un arrêt) les change. Ainsi on détecte la rotation
+        même quand le fichier regrossit au-delà de l'ancien offset entre deux
+        polls — sans faux positif sur la croissance normale d'un petit fichier
+        (le bug de la 1re version, qui empreintait les 64 premiers octets bruts)."""
+        n = min(self._FP_LEN, max(int(pos), 0))
+        if n <= 0:
+            return ""
+        try:
+            with open(self._path, "rb") as f:
+                return hashlib.sha1(f.read(n)).hexdigest()
+        except OSError:
+            return ""
 
     def _load_state(self) -> "dict | None":
         if not self._state or not self._state.exists():
@@ -336,23 +361,35 @@ class AlertsWatcher:
             return
         try:
             self._state.parent.mkdir(parents=True, exist_ok=True)
-            self._state.write_text(json.dumps({"inode": self._inode, "pos": self._pos}))
+            self._state.write_text(json.dumps(
+                {"inode": self._inode, "pos": self._pos, "head": self._head}))
         except OSError:
             pass  # best-effort : ne jamais planter le daemon pour l'état
 
     def open(self) -> None:
         if not self._path.exists():
             return
-        self._file  = open(self._path, "rb")
-        self._inode = self._path.stat().st_ino
-        size        = self._path.stat().st_size
-        saved       = self._load_state()
-        if saved and saved.get("inode") == self._inode:
-            # Reprise après redémarrage (clampée à la taille pour gérer un truncate)
-            self._pos = min(int(saved.get("pos", 0)), size)
+        self._file   = open(self._path, "rb")
+        self._inode  = self._path.stat().st_ino
+        size         = self._path.stat().st_size
+        saved        = self._load_state()
+        saved_pos    = int(saved.get("pos", 0)) if saved else 0
+        same_inode   = bool(saved and saved.get("inode") == self._inode)
+        # même fichier = même inode + préfixe consommé inchangé + pas de truncate
+        same_file = (
+            same_inode
+            and saved_pos <= size
+            and saved.get("head") == self._prefix_fp(saved_pos)
+        )
+        if same_file:
+            self._pos = saved_pos                       # reprise sans fenêtre aveugle
+        elif same_inode and "head" not in saved:
+            self._pos = min(saved_pos, size)            # état hérité (sans empreinte)
+        elif same_inode:
+            self._pos = 0                               # réécrit/tronqué pendant l'arrêt
         else:
-            # Premier démarrage (ou rotation pendant l'arrêt) : on part de la fin
-            self._pos = size
+            self._pos = size                            # 1er démarrage → fin (pas d'histo)
+        self._head = self._prefix_fp(self._pos)
         self._persist()
 
     def read_new(self) -> list[dict]:
@@ -365,10 +402,14 @@ class AlertsWatcher:
                     self._file.close()
                 self._file  = open(self._path, "rb")
                 self._inode = inode
-                self._pos   = 0  # nouveau fichier après rotation → depuis le début
+                self._pos   = 0    # nouveau fichier après rotation → depuis le début
             elif st.st_size < self._pos:
-                # copytruncate (logrotate) : même inode mais fichier tronqué →
-                # repartir de 0, sinon fenêtre aveugle permanente (RC-4).
+                # copytruncate (logrotate) : même inode, fichier tronqué sous l'offset
+                self._pos = 0
+            elif self._pos > 0 and self._prefix_fp(self._pos) != self._head:
+                # copytruncate PUIS regrossi au-delà de l'ancien offset entre deux
+                # polls : le préfixe consommé a changé ⇒ fichier RÉÉCRIT → relire
+                # depuis 0 (sinon perte silencieuse d'alertes).
                 self._pos = 0
 
         if not self._file:
@@ -393,6 +434,7 @@ class AlertsWatcher:
                 alerts.append(json.loads(raw.decode("utf-8", "replace")))
             except json.JSONDecodeError:
                 pass
+        self._head = self._prefix_fp(self._pos)   # empreinte du préfixe consommé
         self._persist()
         return alerts
 

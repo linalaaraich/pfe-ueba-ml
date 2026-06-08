@@ -120,9 +120,13 @@ def calibrate_ae_threshold(val_errors, percentile: float = 99.0,
     Repli sur μ+σ (entraînement) si la validation est trop petite (< 20 points).
     """
     val_errors = np.asarray(val_errors, dtype=float)
+    # Écarter NaN/inf : sinon np.percentile renvoie NaN, et au service
+    # `mse > NaN` est toujours False ⇒ autoencodeur muet sans alerte (bug).
+    val_errors = val_errors[np.isfinite(val_errors)]
     if val_errors.size >= 20:
         return float(np.percentile(val_errors, percentile))
-    if fallback_mean is not None and fallback_std is not None:
+    if (fallback_mean is not None and fallback_std is not None
+            and np.isfinite(fallback_mean) and np.isfinite(fallback_std)):
         return float(fallback_mean + sigma * fallback_std)
     return float(np.percentile(val_errors, percentile)) if val_errors.size else 0.0
 

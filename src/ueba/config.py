@@ -33,10 +33,15 @@ _DEFAULTS: dict[str, Any] = {
         "work_hour_end":    18,
     },
     "detection": {
-        "contamination":        0.05,
-        "ae_latent_dim":        4,
-        "ae_threshold_sigma":   3.0,
-        "ensemble_threshold":   2,
+        # Synchronisé avec config/config.yaml (source unique) : valeurs abaissées
+        # pour maîtriser les faux positifs (cf. audit DATASET_HEALTH.md).
+        "contamination":            0.01,
+        "ocsvm_nu":                 0.01,
+        "ocsvm_gamma":              0.01,
+        "ae_latent_dim":            4,
+        "ae_threshold_percentile":  99.0,
+        "ae_threshold_sigma":       3.0,
+        "ensemble_threshold":       2,
     },
     "daemon": {
         "poll_seconds": 30,
