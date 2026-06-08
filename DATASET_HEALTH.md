@@ -1,15 +1,33 @@
-# Audit de santé du dataset — pourquoi « les résultats ne sont pas exacts »
+# Audit de santé du dataset — pourquoi « les résultats n'étaient pas exacts » (RÉSOLU)
 
-> **TL;DR.** Le code s'exécute, mais les résultats sont biaisés par les **données**,
-> pas par les modèles. Sur le jeu **synthétique** (celui utilisé par défaut,
-> `USE_REAL_DATA=False`), le diagnostic exécuté montre **un taux de faux positifs
-> de 10–20 % sur du normal jamais vu** et **6 features sur 14 constantes (mortes)**
-> dans le normal d'entraînement. La « détection à 100 % » des attaques est en
-> grande partie un **artefact** : les attaques synthétiques diffèrent du normal
-> surtout sur des features qui sont *constantes* dans le normal.
+> **STATUT : ✅ CORRIGÉ.** Le problème ci-dessous a été diagnostiqué PUIS corrigé.
+> Le tableau « avant / après » résume ; les sections 2-4 décrivent le diagnostic
+> d'origine (conservé pour la traçabilité de soutenance), la section 4bis ce qui
+> a changé.
 >
-> Date : 2026-06-04 · Outil : `python -m ueba.features.health <dataset.csv>` ·
-> Preuves : **exécutées** (venv réel, scikit-learn 1.9), pas spéculées.
+> | Métrique (jeu synthétique par défaut) | AVANT | APRÈS (code actuel) |
+> |---|---|---|
+> | Features constantes/mortes dans le normal | **6 / 14** | **0** ✅ |
+> | FP sur normal hors-échantillon — Isolation Forest | ~10 % | **1,1 %** ✅ |
+> | FP — One-Class SVM | ~20 % | **3,3 %** ✅ |
+> | FP — ensemble (≥2/3) | ~10 % | **0,6 %** ✅ |
+> | Profils utilisateurs dans le normal | 1 | **8** ✅ |
+> | Détection des attaques | 100 % (trivial) | maintenue, sur baseline saine |
+>
+> **Ce qui a corrigé** : (1) générateur normal réaliste multi-profils
+> (`simulate.py`, utilisé par le notebook) → plus de features constantes ;
+> (2) `contamination`/`ocsvm_nu`/`ocsvm_gamma` abaissés à 0,01 (config.yaml) ;
+> (3) seuil autoencodeur calibré sur le **percentile de validation**
+> (`calibrate_ae_threshold`) ; (4) **baseline figée** partagée train↔serve.
+>
+> Date diag. : 2026-06-04 · Vérifié (après) : 2026-06-05 · Preuves **exécutées**
+> (venv réel) · Outil réutilisable : `python -m ueba.features.health <dataset.csv>`.
+
+---
+
+> ⚠️ Les sections 2-4 ci-dessous documentent l'état **AVANT correction** (jeu
+> synthétique mono-utilisateur, contamination 0,05). Elles restent valables comme
+> *méthode de diagnostic* et comme trace, mais ne décrivent PLUS le code livré.
 
 ---
 

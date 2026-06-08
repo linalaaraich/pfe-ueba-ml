@@ -125,7 +125,7 @@ wazuh:
   session_minutes: 60
 
 detection:
-  contamination: 0.05          # Taux d'anomalies attendu
+  contamination: 0.01          # Taux d'anomalies attendu (abaissé 0.05→0.01 : FP)
   ensemble_threshold: 2        # Votes minimum / 3
 
 daemon:
@@ -137,7 +137,7 @@ daemon:
 
 ## Features UEBA
 
-`parse_logs.py` exporte **16 colonnes** par session, dont **14 features
+`parse_logs.py` exporte **19 colonnes** par session, dont **14 features
 numériques** réellement consommées par les modèles (`NUMERIC_FEATURES`).
 `process_name` et `command_line` sont **textuels** : utilisés pour enrichir les
 alertes et calculer `entropy_commands`, mais **pas** passés aux modèles.

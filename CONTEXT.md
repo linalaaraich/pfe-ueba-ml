@@ -63,7 +63,7 @@ Wazuh Agent (VM2) ────────────────────�
                                                                 │
                                                                 ▼
                                                        data/dataset.csv
-                                                     (16 features par session)
+                                                     (19 colonnes, 14 features ML)
                                                                 │
                                                                 ▼
                                               ueba_ml_pipeline.ipynb
@@ -104,10 +104,12 @@ Wazuh collecte les logs Windows et Sysmon. Voici les événements importants :
 
 ---
 
-## 5. Les 16 features UEBA extraites
+## 5. Les features UEBA extraites (14 numériques + colonnes textuelles)
 
 Une **session** = séquence d'activité d'un utilisateur sans pause de plus de 60 minutes.  
-Pour chaque session, on calcule 16 features :
+`parse_logs.py` exporte **19 colonnes** par session ; **14** sont des features
+numériques consommées par les modèles (`process_name`/`command_line` sont
+textuelles ; `timestamp`/`username`/`session_duration_min` sont des métadonnées) :
 
 | Feature | Comment elle est calculée | Pourquoi c'est important |
 |---------|--------------------------|--------------------------|
@@ -140,13 +142,13 @@ Tous les modèles sont **non supervisés** : ils apprennent uniquement sur des d
 ### Modèle 1 : Isolation Forest
 - **Idée :** Un point anormal est facile à isoler dans un arbre de décision aléatoire. Les anomalies ont des chemins courts, les données normales ont des chemins longs.
 - **Cible :** Anomalies comportementales globales (Insider Threat + Malware)
-- **Paramètre clé :** `contamination=0.05` → on suppose que 5% du jeu d'entraînement peut contenir des anomalies
+- **Paramètre clé :** `contamination=0.01` (abaissé de 0.05 pour réduire les faux positifs ; cf. DATASET_HEALTH.md)
 - **Output :** -1 = anomalie, 1 = normal
 
 ### Modèle 2 : One-Class SVM
 - **Idée :** Apprendre une frontière autour des données normales. Tout ce qui tombe en dehors est une anomalie.
 - **Cible :** Compromission de compte (profil comportemental très différent)
-- **Paramètre clé :** `nu=0.05` (similaire à contamination), `kernel='rbf'`
+- **Paramètre clé :** `nu=0.01`, `gamma=0.01` (abaissés de 0.05/'scale' : FP), `kernel='rbf'`
 - **Limitation :** Lent sur grands datasets → on sous-échantillonne à 2000 sessions max
 - **Output :** -1 = anomalie, 1 = normal
 
@@ -154,7 +156,7 @@ Tous les modèles sont **non supervisés** : ils apprennent uniquement sur des d
 - **Idée :** Un réseau de neurones compresse les données en une représentation réduite (espace latent de dimension 4), puis les reconstruit. Si la reconstruction est mauvaise (erreur MSE élevée), la donnée est anormale.
 - **Architecture :** Encodeur 64→32→16→4 / Décodeur 4→16→32→64 / BatchNorm + Dropout
 - **Cible :** Anomalies subtiles que IF et OCSVM ratent
-- **Seuil :** μ + 3σ des erreurs sur données normales (couvre 99.7% du normal)
+- **Seuil :** percentile (99e) des erreurs de **validation** (`calibrate_ae_threshold`, borne le FP ~1%) ; repli μ+3σ si validation trop petite
 - **Output :** MSE > seuil = anomalie
 
 ### Vote d'ensemble (≥ 2/3)
@@ -187,7 +189,7 @@ Pipeline interne :
 1. `load_alerts()` → lit le JSON (supporte NDJSON et JSON array)
 2. `extract_raw_fields()` → extrait timestamp, username, event_id, file_path, etc.
 3. `group_by_session()` → regroupe les événements en sessions (coupure si >60 min d'inactivité)
-4. `build_features()` → calcule les 16 features pour chaque session
+4. `build_features()` → calcule les features de chaque session (14 numériques ML + colonnes textuelles/métadonnées)
 5. `add_zscores()` → ajoute les z-scores **par utilisateur** (pas globaux)
 
 Usage CLI :
@@ -295,8 +297,8 @@ Le vote d'ensemble combine leurs forces et réduit les faux positifs.
 ### Pourquoi des z-scores par utilisateur et non globaux ?
 Un utilisateur qui accède à 100 fichiers/jour est normal pour lui, pas pour un autre. Le z-score individuel compare chaque session au **profil de cet utilisateur**, pas à la moyenne globale. C'est ce qui rend le système précis.
 
-### Pourquoi `contamination=0.05` ?
-On suppose que même dans les données d'entraînement (censées être normales), il peut y avoir jusqu'à 5% d'anomalies légères. Ce paramètre calibre le seuil de décision des modèles.
+### Pourquoi `contamination=0.01` ?
+On suppose qu'au plus ~1% du jeu d'entraînement (censé normal) contient des anomalies légères. Valeur **abaissée de 0.05 à 0.01** : à 0.05, les modèles étiquetaient ~5% du normal comme anomalie par conception, soit 10-20% de faux positifs hors-échantillon (cf. DATASET_HEALTH.md). Ce paramètre calibre le seuil de décision.
 
 ### Pourquoi session_minutes=60 ?
 Une pause de plus de 60 minutes sans activité signifie probablement que l'utilisateur est passé à autre chose. On coupe la session et on en commence une nouvelle. C'est un compromis raisonnable pour un environnement bureau.
